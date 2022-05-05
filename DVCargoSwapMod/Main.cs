@@ -1,5 +1,6 @@
 ﻿using Harmony12;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.IO;
@@ -13,6 +14,8 @@ namespace DVCargoSwapMod
     static class Main
     {
         public static UnityModManager.ModEntry mod;
+        public static Settings settings;
+        
         // Container prefab names.
         public const string CONTAINER_PREFAB = "C_FlatcarContainer";
         public const string CONTAINER_AC = "AC";
@@ -40,11 +43,25 @@ namespace DVCargoSwapMod
         // <container brand string, <new brand, is AC>>
         public static Dictionary<string, Dictionary<string, bool>> skinEntries = new Dictionary<string, Dictionary<string, bool>>();
         // <new brand, <texture name, texture>>
-        public static Dictionary<string, Dictionary<string, Task<Texture2D>>> skinTextures = new Dictionary<string, Dictionary<string, Task<Texture2D>>>();
+        public static Dictionary<string, Dictionary<string, FileInfo>> skinTextureFiles = new Dictionary<string, Dictionary<string, FileInfo>>();
+        public static Dictionary<string, Dictionary<string, Task<Texture2D>>> skinTextureTasks = new Dictionary<string, Dictionary<string, Task<Texture2D>>>();
 
         static bool Load(UnityModManager.ModEntry modEntry)
         {
             mod = modEntry;
+
+            // Settings
+            try
+            {
+                settings = Settings.Load<Settings>(modEntry);
+                modEntry.OnGUI = entry => settings.Draw(entry);
+                modEntry.OnSaveGUI = entry => settings.Save(entry);
+            } 
+            catch (Exception e)
+            {
+                mod.Logger.Log("Failed to load settings: " + e.Message);
+            }
+
             HarmonyInstance harmony = HarmonyInstance.Create(modEntry.Info.Id);
             // mod.Logger.Log("Made a HarmonyInstance.");
             harmony.PatchAll(Assembly.GetExecutingAssembly());
@@ -99,39 +116,45 @@ namespace DVCargoSwapMod
                         {
                             if (!skinEntries.ContainsKey(containerPrefab))
                                 skinEntries[containerPrefab] = new Dictionary<string, bool>();
-                            // if (!skinEntries[containerPrefab].ContainsKey(brandName))
-                            skinEntries[containerPrefab][brandName] = containerAC; // false;
-                            // skinEntries[containerPrefab][brandName] = containerAC || skinEntries[containerPrefab][brandName];
+                            skinEntries[containerPrefab][brandName] = containerAC;
                         }
                     }
                     else
                     {
-                        // if (!skinEntries[skinPrefab].ContainsKey(brandName))
-                        skinEntries[skinPrefab][brandName] = containerAC; // false;
-                        // skinEntries[skinPrefab][brandName] = containerAC || skinEntries[skinPrefab][brandName];
+                        skinEntries[skinPrefab][brandName] = containerAC;
                     }
 
                     // Don't read any file for default skin.
-                    if (!brandName.Equals(DEFAULT_BRAND, StringComparison.OrdinalIgnoreCase))
+                    if (brandName.Equals(DEFAULT_BRAND, StringComparison.OrdinalIgnoreCase)) 
+                        continue;
+                    
+                    // For all files in the folder in the skin prefab category.
+                    foreach (string skinFilePath in skinFilePaths)
                     {
-                        // For all files in the folder in the skin prefab category.
-                        foreach (string skinFilePath in skinFilePaths)
-                        {
-                            string fileName = Path.GetFileNameWithoutExtension(new FileInfo(skinFilePath).Name);
-                            // TODO: Delete line if Altfuture fixes typo in file name.
-                            fileName = fileName.Replace("ContainersAtlas_01", "ContainersAltas_01");
+                        FileInfo fileInfo = new FileInfo(skinFilePath);
+                        string fileName = Path.GetFileNameWithoutExtension(fileInfo.Name);
+                        // TODO: Delete line if Altfuture fixes typo in file name.
+                        fileName = fileName.Replace("ContainersAtlas_01", "ContainersAltas_01");
+                        // Add dictionary for brand entry.
+                        if (!skinTextureFiles.ContainsKey(brandName))
+                            skinTextureFiles[brandName] = new Dictionary<string, FileInfo>();
+                        // Check if file already read for skin texture.
+                        if (skinTextureFiles[brandName].ContainsKey(fileName))
+                            continue;
+                        
+                        skinTextureFiles[brandName][fileName] = fileInfo;
+                        
+                        if (!skinTextureTasks.ContainsKey(brandName))
+                            skinTextureTasks[brandName] = new Dictionary<string, Task<Texture2D>>();
 
-                            // Add texture file for brand entry.
-                            if (!skinTextures.ContainsKey(brandName))
-                                skinTextures[brandName] = new Dictionary<string, Task<Texture2D>>();
-                            // Check if file already read for skin texture.
-                            if (!skinTextures[brandName].ContainsKey(fileName))
-                            {
-                                // Read file
-                                var skinTexture = TextureLoader.Add(new FileInfo(skinFilePath), false);
-                                skinTextures[brandName][fileName] = skinTexture;
-                            }
-                        }
+                        if (settings.loadOnDemand)
+                            continue;
+                        
+                        if (skinTextureTasks[brandName].ContainsKey(fileName)) 
+                            continue;
+                        // Read file
+                        Task<Texture2D> skinTexture = TextureLoader.Add(fileInfo, false);
+                        skinTextureTasks[brandName][fileName] = skinTexture;
                     }
                 }
             }
@@ -168,15 +191,15 @@ namespace DVCargoSwapMod
             List<string> skinNames = new List<string>(skinEntries.Keys);
             string skin;
 
-            if (skinNames.Count > 0 && !(skin = skinNames[UnityEngine.Random.Range(0, skinNames.Count)]).Equals(Main.DEFAULT_BRAND, StringComparison.OrdinalIgnoreCase))
-            {
-                // We only need to swap out the prefab for normal containers.
-                acswap = acswap || skinEntries[skin];
-                if (acswap || Main.containerPrefabs.Contains(cargoPrefabName))
-                    cargoPrefabName = acswap ? Main.CONTAINER_A1_AC_PREFAB : Main.CONTAINER_A1_PREFAB;
-                // Set state to key in chosen skin.
-                __state = skin;
-            }
+            if (skinNames.Count <= 0 || (skin = skinNames[UnityEngine.Random.Range(0, skinNames.Count)]).Equals(Main.DEFAULT_BRAND, StringComparison.OrdinalIgnoreCase)) 
+                return true;
+            
+            // We only need to swap out the prefab for normal containers.
+            acswap = acswap || skinEntries[skin];
+            if (acswap || Main.containerPrefabs.Contains(cargoPrefabName))
+                cargoPrefabName = acswap ? Main.CONTAINER_A1_AC_PREFAB : Main.CONTAINER_A1_PREFAB;
+            // Set state to key in chosen skin.
+            __state = skin;
 
             return true;
         }
@@ -190,40 +213,58 @@ namespace DVCargoSwapMod
         /// <param name="__state"></param>
         static void Postfix(CargoModelController __instance, string __state) // , TrainCar ___trainCar)
         {
-            if (__state != null)
+            if (__state == null) 
+                return;
+            
+            // Main.mod.Logger.Log(string.Format("Some cargo was loaded into a prefab named {0} on car {1}", __state, ___trainCar.logicCar.ID));
+            GameObject cargoModel = __instance.GetCurrentCargoModel();
+            MeshRenderer[] meshes = cargoModel.GetComponentsInChildren<MeshRenderer>();
+            foreach (MeshRenderer r in meshes)
             {
-                // Main.mod.Logger.Log(string.Format("Some cargo was loaded into a prefab named {0} on car {1}", __state, ___trainCar.logicCar.ID));
-                GameObject cargoModel = __instance.GetCurrentCargoModel();
-                MeshRenderer[] meshes = cargoModel.GetComponentsInChildren<MeshRenderer>();
-                foreach (MeshRenderer m in meshes)
+                if (r.material == null)
+                    continue;
+
+                foreach (string texType in Main.TEXTURE_TYPES)
                 {
-                    if (m.material == null)
+                    if (!r.material.HasProperty(texType))
                         continue;
 
-                    foreach (string t in Main.TEXTURE_TYPES)
-                    {
-                        if (!m.material.HasProperty(t))
-                            continue;
-                        Texture texture = m.material.GetTexture(t);
-                        if (texture is Texture2D && Main.skinTextures[__state].ContainsKey(texture.name))
-                        {
-                            string name = texture.name;
-                            Texture2D skinTexture = Main.skinTextures[__state][name].Result; 
-                            if (!appliedTextures.Contains(skinTexture))
-                            {
-                                skinTexture.Apply(false, true);
-                                appliedTextures.Add(skinTexture);
-                            }
-                            m.material.SetTexture(t, skinTexture);
-                            if (skinTexture.height != skinTexture.width)
-                                Main.mod.Logger.Warning($"The texture '{__state}/{name}' is not a square and may render incorrectly.");
-                            else if (skinTexture.height != 8192)
-                                Main.mod.Logger.Warning($"The texture '{__state}/{name}' is not 8192x8192 and may render incorrectly.");
-                        }
-                    }
-                    // m.material.SetTexture("_MainTex", Main.testContainerSkin);
+                    Texture texture = r.material.GetTexture(texType);
+                    if (texture == null)
+                        continue;
+
+                    string texName = texture.name;
+                    if (!(texture is Texture2D) || !Main.skinTextureFiles[__state].ContainsKey(texName))
+                        continue;
+
+                    if (!Main.skinTextureTasks[__state].ContainsKey(texName))
+                        Main.skinTextureTasks[__state][texName] = TextureLoader.Add(Main.skinTextureFiles[__state][texName], false);
+
+                    __instance.StartCoroutine(ApplyWhenReady(__state, texName, r, texType));
                 }
+                // m.material.SetTexture("_MainTex", Main.testContainerSkin);
             }
         }
+        
+        private static IEnumerator ApplyWhenReady(string brandName, string texTame, Renderer renderer, string textureType)
+        {
+            Task<Texture2D> task = Main.skinTextureTasks[brandName][texTame];
+            while (!task.IsCompleted)
+                yield return null;
+
+            Texture2D skinTexture = task.Result; 
+            if (!appliedTextures.Contains(skinTexture))
+            {
+                skinTexture.Apply(false, true);
+                appliedTextures.Add(skinTexture);
+            }
+
+            renderer.material.SetTexture(textureType, skinTexture);
+            if (skinTexture.height != skinTexture.width)
+                Main.mod.Logger.Warning($"The texture '{brandName}/{texTame}' is not a square and may render incorrectly.");
+            else if (skinTexture.height != 8192)
+                Main.mod.Logger.Warning($"The texture '{brandName}/{texTame}' is not 8192x8192 and may render incorrectly.");
+        }
+
     }
 }
