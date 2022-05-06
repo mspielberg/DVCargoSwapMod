@@ -15,6 +15,8 @@ namespace DVCargoSwapMod
     {
         public static UnityModManager.ModEntry mod;
         public static Settings settings;
+
+        public static bool loadOnDemand { get; private set; } // Changing this can cause unexpected behavior so this forces it to only load at startup.
         
         // Container prefab names.
         public const string CONTAINER_PREFAB = "C_FlatcarContainer";
@@ -56,6 +58,7 @@ namespace DVCargoSwapMod
                 settings = Settings.Load<Settings>(modEntry);
                 modEntry.OnGUI = entry => settings.Draw(entry);
                 modEntry.OnSaveGUI = entry => settings.Save(entry);
+                loadOnDemand = settings.loadOnDemand;
             } 
             catch (Exception e)
             {
@@ -147,7 +150,7 @@ namespace DVCargoSwapMod
                         if (!skinTextureTasks.ContainsKey(brandName))
                             skinTextureTasks[brandName] = new Dictionary<string, Task<Texture2D>>();
 
-                        if (settings.loadOnDemand)
+                        if (loadOnDemand)
                             continue;
                         
                         if (skinTextureTasks[brandName].ContainsKey(fileName)) 
@@ -237,18 +240,18 @@ namespace DVCargoSwapMod
                     if (!(texture is Texture2D) || !Main.skinTextureFiles[__state].ContainsKey(texName))
                         continue;
 
-                    if (!Main.skinTextureTasks[__state].ContainsKey(texName))
-                        Main.skinTextureTasks[__state][texName] = TextureLoader.Add(Main.skinTextureFiles[__state][texName], false);
+                    Task<Texture2D> task = (Main.loadOnDemand)
+                        ? TextureLoader.Add(Main.skinTextureFiles[__state][texName], false)
+                        : Main.skinTextureTasks[__state][texName];
 
-                    __instance.StartCoroutine(ApplyWhenReady(__state, texName, r, texType));
+                    __instance.StartCoroutine(ApplyWhenReady(task, __state, texName, r, texType));
                 }
                 // m.material.SetTexture("_MainTex", Main.testContainerSkin);
             }
         }
         
-        private static IEnumerator ApplyWhenReady(string brandName, string texTame, Renderer renderer, string textureType)
+        private static IEnumerator ApplyWhenReady(Task<Texture2D> task, string brandName, string texTame, Renderer renderer, string textureType)
         {
-            Task<Texture2D> task = Main.skinTextureTasks[brandName][texTame];
             while (!task.IsCompleted)
                 yield return null;
 
