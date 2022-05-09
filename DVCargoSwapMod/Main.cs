@@ -62,7 +62,7 @@ namespace DVCargoSwapMod
             } 
             catch (Exception e)
             {
-                mod.Logger.Log("Failed to load settings: " + e.Message);
+                mod.Logger.Warning("Failed to load settings: " + e.Message);
             }
 
             HarmonyInstance harmony = HarmonyInstance.Create(modEntry.Info.Id);

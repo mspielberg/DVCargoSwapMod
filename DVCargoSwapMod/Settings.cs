@@ -8,6 +8,9 @@ namespace DVCargoSwapMod
         [Draw(Label = "Load Textures on Demand (requires restart)", Type = DrawType.Toggle)]
         public bool loadOnDemand;
 
+        [Draw(Label = "Enable Logging", Type = DrawType.Toggle)]
+        public bool verbose;
+
         public override void Save(UnityModManager.ModEntry entry)
         {
             Save(this, entry);
