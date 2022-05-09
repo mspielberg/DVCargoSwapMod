@@ -45,7 +45,10 @@ namespace DVCargoSwapMod
                 PopulateTexture(fileInfo, info.componentCount > 3, nativeArray);
                 var cachePath = GetCachePath(fileInfo.FullName);
                 Directory.CreateDirectory(Path.GetDirectoryName(cachePath));
-                DDSUtils.WriteDDSGz(new FileInfo(cachePath), texture);
+                FileInfo cacheFileInfo = new FileInfo(cachePath);
+                if (cacheFileInfo.Exists)
+                    return texture;
+                DDSUtils.WriteDDSGz(cacheFileInfo, texture);
                 return texture;
             });
         }
@@ -120,7 +123,8 @@ namespace DVCargoSwapMod
             var outfile = new GZipStream(fileInfo.OpenWrite(), CompressionLevel.Optimal);
             outfile.Write(DDSHeader(texture.width, texture.height, texture.format == TextureFormat.DXT5, texture.mipmapCount), 0, 128);
             var data = texture.GetRawTextureData<byte>().ToArray();
-            Debug.Log($"Writing to {fileInfo.FullName}");
+            if (Main.settings.verbose)
+                Main.mod.Logger.Log($"Writing cache file to {fileInfo.FullName}");
             outfile.Write(data, 0, data.Length);
             outfile.Close();
         }
