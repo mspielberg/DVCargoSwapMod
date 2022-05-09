@@ -45,7 +45,10 @@ namespace DVCargoSwapMod
                 PopulateTexture(fileInfo, info.componentCount > 3, nativeArray);
                 var cachePath = GetCachePath(fileInfo.FullName);
                 Directory.CreateDirectory(Path.GetDirectoryName(cachePath));
-                DDSUtils.WriteDDSGz(new FileInfo(cachePath), texture);
+                FileInfo cacheFileInfo = new FileInfo(cachePath);
+                if (cacheFileInfo.Exists)
+                    return texture;
+                DDSUtils.WriteDDSGz(cacheFileInfo, texture);
                 return texture;
             });
         }
